@@ -1,18 +1,56 @@
-# Chatbot Empresarial
+# Chatbot Empresarial / Business Chatbot / Chatbot Empresarial
 
 Chatbot de atenci?n al cliente para un negocio con inventario, pedidos, soporte y b?squeda inteligente (RAG) usando DeepSeek.
+Customer service chatbot for a business with inventory, orders, support and smart search (RAG) using DeepSeek.
+Chatbot de atendimento ao cliente para um neg?cio com invent?rio, pedidos, suporte e pesquisa inteligente (RAG) usando DeepSeek.
 
-**Demo en vivo:** https://chatbotexpertservice.online
+**Demo en vivo / Live demo / Demo ao vivo:** https://chatbotexpertservice.online
 
-## Funcionalidades
-- Chat con IA (DeepSeek) que responde preguntas sobre productos, precios y stock
+---
+
+## English
+
+### Features
+- AI chat (DeepSeek) answering questions about products, prices and stock
+- Product inventory with categories
+- Order management with automatic total calculation
+- Support tickets
+- Semantic search (RAG with ChromaDB)
+- Product recommendations
+
+### Stack
+- **Frontend:** React + Vite + TypeScript + Tailwind
+- **Backend:** FastAPI (Python)
+- **Database:** PostgreSQL
+- **AI:** DeepSeek API
+- **RAG:** ChromaDB
+- **Deployment:** Docker + nginx + HTTPS (Let's Encrypt)
+
+### How to run
+1. Create a `.env` file with:
+   ```
+   DATABASE_URL=postgresql://user:pass@localhost:5432/chatbot
+   DEEPSEEK_API_KEY=your_deepseek_key
+   DB_PASSWORD=your_password
+   ```
+2. Start services:
+   ```
+   docker-compose up --build
+   ```
+
+---
+
+## Espa?ol
+
+### Funcionalidades
+- Chat con IA (DeepSeek) que responde sobre productos, precios y stock
 - Inventario de productos con categor?as
 - Registro de pedidos con c?lculo autom?tico del total
 - Tickets de soporte
 - B?squeda sem?ntica (RAG con ChromaDB)
 - Recomendaciones de productos
 
-## Stack
+### Stack
 - **Frontend:** React + Vite + TypeScript + Tailwind
 - **Backend:** FastAPI (Python)
 - **Base de datos:** PostgreSQL
@@ -20,15 +58,8 @@ Chatbot de atenci?n al cliente para un negocio con inventario, pedidos, soporte 
 - **RAG:** ChromaDB
 - **Despliegue:** Docker + nginx + HTTPS (Let's Encrypt)
 
-## Estructura
-```
-backend/   -> API FastAPI (productos, pedidos, tickets, chat, RAG)
-frontend/  -> App React
-docker-compose.yml
-```
-
-## C?mo ejecutar
-1. Crear archivo `.env` con:
+### C?mo ejecutar
+1. Crear un archivo `.env` con:
    ```
    DATABASE_URL=postgresql://user:pass@localhost:5432/chatbot
    DEEPSEEK_API_KEY=tu_clave_deepseek
@@ -39,8 +70,44 @@ docker-compose.yml
    docker-compose up --build
    ```
 
-## Nota de seguridad
-- Las claves API (DEEPSEEK_API_KEY, DB_PASSWORD) van SOLO en `.env` (ignorado por git). Nunca se suben al repositorio.
+---
+
+## Portugu?s
+
+### Funcionalidades
+- Chat com IA (DeepSeek) que responde sobre produtos, pre?os e estoque
+- Invent?rio de produtos com categorias
+- Registro de pedidos com c?lculo autom?tico do total
+- Tickets de suporte
+- Pesquisa sem?ntica (RAG com ChromaDB)
+- Recomenda??es de produtos
+
+### Stack
+- **Frontend:** React + Vite + TypeScript + Tailwind
+- **Backend:** FastAPI (Python)
+- **Banco de dados:** PostgreSQL
+- **IA:** DeepSeek API
+- **RAG:** ChromaDB
+- **Implanta??o:** Docker + nginx + HTTPS (Let's Encrypt)
+
+### Como executar
+1. Criar um arquivo `.env` com:
+   ```
+   DATABASE_URL=postgresql://user:pass@localhost:5432/chatbot
+   DEEPSEEK_API_KEY=sua_chave_deepseek
+   DB_PASSWORD=sua_senha
+   ```
+2. Iniciar servi?os:
+   ```
+   docker-compose up --build
+   ```
 
 ---
-Proyecto de portfolio ? programador junior.
+
+## Seguridad / Security / Seguran?a
+- Las claves API (DEEPSEEK_API_KEY, DB_PASSWORD) van SOLO en `.env` (ignorado por git). Nunca se suben.
+- API keys (DEEPSEEK_API_KEY, DB_PASSWORD) go ONLY in `.env` (ignored by git). They are never uploaded.
+- As chaves de API (DEEPSEEK_API_KEY, DB_PASSWORD) ficam SOMENTE no `.env` (ignorado pelo git). Nunca s?o enviadas.
+
+---
+Portfolio project ? junior developer / Proyecto de portfolio ? programador junior / Projeto de portf?lio ? programador j?nior.
