@@ -4,8 +4,6 @@ Chatbot de atención al cliente para un negocio con inventario, pedidos, soporte
 Customer service chatbot for a business with inventory, orders, support and smart search (RAG) using DeepSeek.
 Chatbot de atendimento ao cliente para um negócio com inventário, pedidos, suporte e pesquisa inteligente (RAG) usando DeepSeek.
 
-**Demo en vivo / Live demo / Demo ao vivo:** https://chatbotexpertservice.online
-
 ---
 
 ## English
