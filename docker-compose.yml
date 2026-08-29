@@ -1,0 +1,46 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: chatbot-db
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: chatbot-backend
+    environment:
+      DATABASE_URL: postgresql://chatbot:${DB_PASSWORD}@db:5432/chatbot
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    depends_on:
+      - db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    container_name: chatbot-frontend
+    environment:
+      VITE_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+volumes:
+  pgdata:

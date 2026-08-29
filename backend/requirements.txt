@@ -1,0 +1,12 @@
+fastapi==0.141.1
+uvicorn[standard]
+sqlalchemy==2.0.52
+alembic==1.19.1
+psycopg2-binary==2.9.12
+chromadb==1.5.9
+openai==3.3.1
+httpx==0.28.1
+python-dotenv==1.2.3
+pydantic==2.13.4
+pydantic-settings
+numpy==2.5.2

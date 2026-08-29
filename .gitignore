@@ -1,0 +1,21 @@
+# dependencies
+node_modules/
+venv/
+__pycache__/
+*.pyc
+
+# env / secrets (NUNCA subir)
+.env
+.env.*
+
+# logs
+*.log
+
+# build
+.next/
+out/
+dist/
+build/
+
+# OS
+.DS_Store
