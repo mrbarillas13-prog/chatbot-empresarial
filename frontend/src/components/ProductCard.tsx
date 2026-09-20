@@ -1,45 +1,70 @@
-interface Product {
-  id: string
-  name: string
-  description: string
-  price: number
-  category: string
-  stock: number
+interface ProductProps {
+  product: {
+    id: string
+    name: string
+    name_pt?: string
+    description?: string
+    description_pt?: string
+    price: number
+    category: string
+    stock: number
+    image_url?: string
+  }
 }
 
-interface ProductCardProps {
-  product: Product
+const categoryIcons: Record<string, string> = {
+  Laptops: '\uD83D\uDCBB',
+  Accesorios: '\uD83C\uDFA7',
 }
 
-export default function ProductCard({ product }: ProductCardProps) {
-  const stockColor = product.stock > 20 ? 'text-green-600 bg-green-50' : product.stock > 0 ? 'text-yellow-600 bg-yellow-50' : 'text-red-600 bg-red-50'
-  const stockText = product.stock > 20 ? 'En stock' : product.stock > 0 ? `Solo ${product.stock}` : 'Agotado'
+const categoryColors: Record<string, string> = {
+  Laptops: 'from-blue-500 to-indigo-600',
+  Accesorios: 'from-emerald-500 to-teal-600',
+}
 
-  const categoryColors: Record<string, string> = {
-    'Electronica': 'bg-blue-100 text-blue-700',
-    'Accesorios': 'bg-purple-100 text-purple-700',
-    'Audio': 'bg-pink-100 text-pink-700',
-    'Almacenamiento': 'bg-green-100 text-green-700',
-    'Mobiliario': 'bg-orange-100 text-orange-700',
+export default function ProductCard({ product }: ProductProps) {
+  const displayName = product.name_pt || product.name
+  const displayDesc = product.description_pt || product.description || ''
+  const icon = categoryIcons[product.category] || '\uD83D\uDCE6'
+  const gradient = categoryColors[product.category] || 'from-gray-500 to-gray-600'
+  const stockStatus = product.stock > 10 ? 'Em estoque' : product.stock > 0 ? ('Apenas ' + product.stock + ' restantes') : 'Esgotado'
+  const stockColor = product.stock > 10 ? 'text-green-600' : product.stock > 0 ? 'text-amber-600' : 'text-red-600'
+
+  const handleAddToCart = () => {
+    window.dispatchEvent(new CustomEvent('add-to-cart', {
+      detail: {
+        id: product.id,
+        name: product.name_pt || product.name,
+        price: product.price,
+        quantity: 1
+      }
+    }))
   }
 
-  const catColor = categoryColors[product.category] || 'bg-gray-100 text-gray-700'
-
   return (
-    <div className="bg-white border border-gray-100 rounded-xl p-3 shadow-sm hover:shadow-md transition-shadow max-w-xs">
-      <div className="flex items-start justify-between mb-2">
-        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${catColor}`}>
-          {product.category}
-        </span>
-        <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${stockColor}`}>
-          {stockText}
-        </span>
+    <div className="bg-white rounded-2xl shadow-md hover:shadow-xl transition-all duration-300 overflow-hidden group border border-gray-100">
+      <div className={'h-32 bg-gradient-to-br ' + gradient + ' flex items-center justify-center'}>
+        <span className="text-5xl group-hover:scale-110 transition-transform duration-300">{icon}</span>
       </div>
-      <h4 className="font-semibold text-gray-800 text-sm mb-1">{product.name}</h4>
-      <p className="text-xs text-gray-500 mb-2 line-clamp-2">{product.description}</p>
-      <div className="flex items-center justify-between">
-        <span className="text-lg font-bold text-brand-600">${product.price.toFixed(2)}</span>
-        <span className="text-xs text-gray-400">Stock: {product.stock}</span>
+      <div className="p-5">
+        <div className="flex items-start justify-between mb-2">
+          <h4 className="font-bold text-gray-900 text-base leading-tight flex-1">{displayName}</h4>
+          <span className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full ml-2 whitespace-nowrap">{product.category}</span>
+        </div>
+        <p className="text-gray-500 text-sm mb-3 line-clamp-2 leading-relaxed">{displayDesc}</p>
+        <div className="flex items-end justify-between">
+          <div>
+            <span className="text-2xl font-extrabold text-blue-900">{product.price.toFixed(2)} &euro;</span>
+          </div>
+          <span className={'text-xs font-medium ' + stockColor}>{stockStatus}</span>
+        </div>
+        <button
+          onClick={handleAddToCart}
+          className="w-full mt-4 bg-blue-900 text-white py-2.5 rounded-xl font-semibold hover:bg-blue-800 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+          disabled={product.stock === 0}
+        >
+          {product.stock === 0 ? 'Indisponivel' : 'Adicionar ao Carrinho'}
+        </button>
       </div>
     </div>
   )

@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { renderMarkdown } from '../utils/markdown'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -70,7 +71,7 @@ export default function Chat({ messages, onSend, loading }: ChatProps) {
                   ? 'bg-brand-500 text-white rounded-br-md'
                   : 'bg-white text-gray-800 border border-gray-100 shadow-sm rounded-bl-md'
               }`}>
-                {msg.content}
+                {renderMarkdown(msg.content)}
               </div>
               <div className={`text-xs text-gray-400 mt-1 ${msg.role === 'user' ? 'text-right' : 'text-left'} px-1`}>
                 {msg.timestamp.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}
@@ -146,3 +147,4 @@ export default function Chat({ messages, onSend, loading }: ChatProps) {
     </div>
   )
 }
+

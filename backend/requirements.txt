@@ -10,3 +10,7 @@ python-dotenv==1.2.3
 pydantic==2.13.4
 pydantic-settings
 numpy==2.5.2
+PyJWT==2.9.0
+bcrypt==4.2.1
+
+# rebuild $(date)

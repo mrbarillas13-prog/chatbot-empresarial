@@ -2,7 +2,7 @@ import chromadb
 from sqlalchemy.orm import Session
 from app.models import Product
 
-client = chromadb.Client()
+client = chromadb.PersistentClient(path="/chroma_data")
 
 try:
     collection = client.get_collection("products")
@@ -20,7 +20,7 @@ def index_products(db: Session):
     metadatas = []
 
     for p in products:
-        doc = f"{p.name}. {p.description or ''} Categoria: {p.category or 'N/A'}. Precio: ${p.price:.2f}. Stock: {p.stock} unidades."
+        doc = f"{p.name}. {p.description or ''} Categoria: {p.category or 'N/A'}. Precio: {p.price:.2f} EUR. Stock: {p.stock} unidades."
         meta = {
             "name": p.name,
             "price": p.price,
@@ -76,7 +76,7 @@ def get_recommendations(query: str, n_results: int = 3) -> str:
         stock_status = "Disponible" if p["stock"] > 0 else "Agotado"
         relevance_pct = int(p["relevance"] * 100)
         lines.append(
-            f"- {p['name']} | ${p['price']:.2f} | {p['category']} | "
+            f"- {p['name']} | {p['price']:.2f} | {p['category']} | "
             f"Stock: {p['stock']} ({stock_status}) | Relevancia: {relevance_pct}%"
         )
     return "\n".join(lines)
@@ -94,7 +94,7 @@ def get_dynamic_context(message: str, db: Session) -> str:
     lines = ["CONTEXTO RELEVANTE (busqueda semantica):"]
     for p in available:
         lines.append(
-            f"- {p['name']} ({p['category']}): ${p['price']:.2f}, "
+            f"- {p['name']} ({p['category']}): {p['price']:.2f}, "
             f"{p['stock']} unidades disponibles. {p['description']}"
         )
     return "\n".join(lines)
@@ -112,7 +112,7 @@ def get_category_recommendations(category: str) -> str:
 
     lines = [f"PRODUCTOS EN CATEGORIA '{category.upper()}':"]
     for p in filtered:
-        lines.append(f"- {p['name']} | ${p['price']:.2f} | Stock: {p['stock']}")
+        lines.append(f"- {p['name']} | {p['price']:.2f} | Stock: {p['stock']}")
     return "\n".join(lines)
 
 
@@ -126,3 +126,5 @@ def get_stock_info(query: str) -> str:
         status = "Disponible" if p["stock"] > 0 else "Agotado"
         lines.append(f"- {p['name']}: {p['stock']} unidades ({status})")
     return "\n".join(lines)
+
+

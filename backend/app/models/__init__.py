@@ -4,3 +4,4 @@ from app.models.ticket import Ticket
 from app.models.conversation import Conversation
 
 __all__ = ["Product", "Order", "OrderItem", "Ticket", "Conversation"]
+from app.models.user import User

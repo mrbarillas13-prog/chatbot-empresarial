@@ -17,7 +17,7 @@ class OrderCreate(BaseModel):
 
 
 class OrderUpdate(BaseModel):
-    status: Optional[str] = Field(None, pattern="^(pending|shipped|delivered|cancelled)$")
+    status: Optional[str] = Field(None, pattern="^(pending|paid|shipped|delivered|cancelled)$")
 
 
 class OrderItemResponse(BaseModel):

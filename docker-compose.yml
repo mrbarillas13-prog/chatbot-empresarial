@@ -1,4 +1,3 @@
-version: "3.9"
 
 services:
   db:
@@ -11,7 +10,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
 
   backend:
@@ -20,12 +19,24 @@ services:
     environment:
       DATABASE_URL: postgresql://chatbot:${DB_PASSWORD}@db:5432/chatbot
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      REDIS_URL: redis://:{REDIS_PASSWORD}@redis:6379/0
     depends_on:
       - db
+      - redis
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     volumes:
       - ./backend:/app
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: chatbot-redis
+    command: redis-server /etc/redis/redis.conf
+    volumes:
+      - ./redis.conf:/etc/redis/redis.conf
+    ports:
+      - "127.0.0.1:6379:6379"
     restart: unless-stopped
 
   frontend:
@@ -35,8 +46,6 @@ services:
       VITE_API_URL: http://localhost:8000
     depends_on:
       - backend
-    ports:
-      - "5173:5173"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -44,3 +53,5 @@ services:
 
 volumes:
   pgdata:
+
+

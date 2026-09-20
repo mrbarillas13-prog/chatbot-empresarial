@@ -1,7 +1,7 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from uuid import UUID
 import os
 
@@ -13,6 +13,9 @@ from app.schemas.ticket import TicketCreate, TicketUpdate, TicketResponse, Ticke
 from app.schemas.chat import ChatRequest, ChatResponse
 from chat_service import chat_with_ai, classify_intent, summarize_conversation
 from rag_service import index_products, search_semantic
+from app.api.auth import router as auth_router
+from app.services.auth_service import get_current_user
+from email_service import send_order_confirmation
 
 Base.metadata.create_all(bind=engine)
 
@@ -31,6 +34,8 @@ def startup_index():
         print(f"RAG: {count} productos indexados en ChromaDB")
     finally:
         db.close()
+
+app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,
@@ -51,146 +56,133 @@ def health():
     return {"status": "healthy", "version": "1.0.0"}
 
 
-# === PRODUCTS ===
 @app.get("/api/products", response_model=ProductList)
 def list_products(
     search: str = None,
     category: str = None,
     limit: int = 20,
     offset: int = 0,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
     query = db.query(Product)
     if search:
-        query = query.filter(Product.name.ilike(f"%{search}%"))
+        query = query.filter(
+            or_(
+                Product.name.ilike(f"%{search}%"),
+                Product.description.ilike(f"%{search}%")
+            )
+        )
     if category:
         query = query.filter(Product.category == category)
     total = query.count()
     products = query.offset(offset).limit(limit).all()
-    return ProductList(products=products, total=total)
+    return {"products": products, "total": total}
 
 
 @app.get("/api/products/{product_id}", response_model=ProductResponse)
 def get_product(product_id: UUID, db: Session = Depends(get_db)):
     product = db.query(Product).filter(Product.id == product_id).first()
     if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
     return product
 
 
-@app.post("/api/products", response_model=ProductResponse)
-def create_product(product_data: ProductCreate, db: Session = Depends(get_db)):
-    product = Product(**product_data.model_dump())
-    db.add(product)
+@app.post("/api/orders", response_model=OrderResponse)
+def create_order(order: OrderCreate, db: Session = Depends(get_db)):
+    db_order = Order(
+        customer_name=order.customer_name,
+        customer_email=order.customer_email,
+        status="pending",
+        total=sum(item.unit_price * item.quantity for item in order.items)
+    )
+    db.add(db_order)
+    db.flush()
+
+    for item in order.items:
+        db_item = OrderItem(
+            order_id=db_order.id,
+            product_id=item.product_id,
+            quantity=item.quantity,
+            unit_price=item.unit_price
+        )
+        db.add(db_item)
+
     db.commit()
-    db.refresh(product)
-    return product
+    db.refresh(db_order)
+    return db_order
 
 
-@app.put("/api/products/{product_id}", response_model=ProductResponse)
-def update_product(product_id: UUID, product_data: ProductUpdate, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    update_data = product_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(product, field, value)
-    db.commit()
-    db.refresh(product)
-    return product
-
-
-@app.delete("/api/products/{product_id}")
-def delete_product(product_id: UUID, db: Session = Depends(get_db)):
-    product = db.query(Product).filter(Product.id == product_id).first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    db.delete(product)
-    db.commit()
-    return {"detail": "Product deleted"}
-
-
-# === ORDERS ===
 @app.get("/api/orders", response_model=OrderList)
 def list_orders(
     email: str = None,
     status: str = None,
     limit: int = 20,
     offset: int = 0,
-    db: Session = Depends(get_db),
+    authorization: str = Header(None),
+    db: Session = Depends(get_db)
 ):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token requerido")
+    token = authorization.split(" ")[1]
+    user = get_current_user(token, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Token invalido o expirado")
+    
     query = db.query(Order)
     if email:
         query = query.filter(Order.customer_email == email)
     if status:
         query = query.filter(Order.status == status)
     total = query.count()
-    orders = query.offset(offset).limit(limit).all()
-    return OrderList(orders=orders, total=total)
-
-
-@app.post("/api/orders", response_model=OrderResponse)
-def create_order(order_data: OrderCreate, db: Session = Depends(get_db)):
-    total = sum(item.quantity * item.unit_price for item in order_data.items)
-    order = Order(
-        customer_name=order_data.customer_name,
-        customer_email=order_data.customer_email,
-        total=total,
-    )
-    db.add(order)
-    db.flush()
-    for item in order_data.items:
-        order_item = OrderItem(
-            order_id=order.id,
-            product_id=item.product_id,
-            quantity=item.quantity,
-            unit_price=item.unit_price,
-        )
-        db.add(order_item)
-    db.commit()
-    db.refresh(order)
-    return order
+    orders = query.order_by(Order.created_at.desc()).offset(offset).limit(limit).all()
+    return {"orders": orders, "total": total}
 
 
 @app.get("/api/orders/{order_id}", response_model=OrderResponse)
 def get_order(order_id: UUID, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
     return order
 
 
 @app.put("/api/orders/{order_id}", response_model=OrderResponse)
-def update_order(order_id: UUID, order_data: OrderUpdate, db: Session = Depends(get_db)):
+def update_order(order_id: UUID, order_update: OrderUpdate, authorization: str = Header(None), db: Session = Depends(get_db)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token requerido")
+    token = authorization.split(" ")[1]
+    user = get_current_user(token, db)
+    if not user:
+        raise HTTPException(status_code=401, detail="Token invalido o expirado")
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Solo admins pueden cambiar estado de pedidos")
+    
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    update_data = order_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(order, field, value)
+        raise HTTPException(status_code=404, detail="Pedido no encontrado")
+    if order_update.status:
+        order.status = order_update.status
     db.commit()
     db.refresh(order)
     return order
 
 
-@app.delete("/api/orders/{order_id}")
-def delete_order(order_id: UUID, db: Session = Depends(get_db)):
-    order = db.query(Order).filter(Order.id == order_id).first()
-    if not order:
-        raise HTTPException(status_code=404, detail="Order not found")
-    db.delete(order)
+@app.post("/api/tickets", response_model=TicketResponse)
+def create_ticket(ticket: TicketCreate, db: Session = Depends(get_db)):
+    db_ticket = Ticket(**ticket.model_dump())
+    db.add(db_ticket)
     db.commit()
-    return {"detail": "Order deleted"}
+    db.refresh(db_ticket)
+    return db_ticket
 
 
-# === TICKETS ===
 @app.get("/api/tickets", response_model=TicketList)
 def list_tickets(
     email: str = None,
     status: str = None,
     limit: int = 20,
     offset: int = 0,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db)
 ):
     query = db.query(Ticket)
     if email:
@@ -198,106 +190,180 @@ def list_tickets(
     if status:
         query = query.filter(Ticket.status == status)
     total = query.count()
-    tickets = query.offset(offset).limit(limit).all()
-    return TicketList(tickets=tickets, total=total)
+    tickets = query.order_by(Ticket.created_at.desc()).offset(offset).limit(limit).all()
+    return {"tickets": tickets, "total": total}
 
 
-@app.post("/api/tickets", response_model=TicketResponse)
-def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)):
-    ticket = Ticket(**ticket_data.model_dump())
-    db.add(ticket)
-    db.commit()
-    db.refresh(ticket)
-    return ticket
-
-
-@app.get("/api/tickets/{ticket_id}", response_model=TicketResponse)
-def get_ticket(ticket_id: UUID, db: Session = Depends(get_db)):
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
-
-
-@app.put("/api/tickets/{ticket_id}", response_model=TicketResponse)
-def update_ticket(ticket_id: UUID, ticket_data: TicketUpdate, db: Session = Depends(get_db)):
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    update_data = ticket_data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(ticket, field, value)
-    db.commit()
-    db.refresh(ticket)
-    return ticket
-
-
-@app.delete("/api/tickets/{ticket_id}")
-def delete_ticket(ticket_id: UUID, db: Session = Depends(get_db)):
-    ticket = db.query(Ticket).filter(Ticket.id == ticket_id).first()
-    if not ticket:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    db.delete(ticket)
-    db.commit()
-    return {"detail": "Ticket deleted"}
-
-
-# === CHAT ===
 @app.post("/api/chat", response_model=ChatResponse)
-def chat(message: ChatRequest, db: Session = Depends(get_db)):
-    user_msg = Conversation(
-        session_id=message.session_id,
+def chat(request: ChatRequest, db: Session = Depends(get_db)):
+    intent = classify_intent(request.message)
+    
+    context = ""
+    if intent == "consulta_producto":
+        products = search_semantic(request.message, n_results=3)
+        if products:
+            context = "Productos encontrados: " + str(products)
+    elif intent == "consulta_pedido":
+        context = "El cliente consulta por su pedido."
+    elif intent == "crear_ticket":
+        context = "El cliente quiere crear un ticket de soporte."
+    
+    result = chat_with_ai(request.session_id, request.message, context, db)
+    reply = result["reply"]
+    order_data = result.get("order")
+    
+    if order_data:
+        send_order_confirmation(
+            to_email=order_data["email"],
+            customer_name=order_data["name"],
+            order_id=order_data["order_id"],
+            product_name=order_data["product_name"],
+            total=order_data["total"]
+        )
+    
+    conversation = Conversation(
+        session_id=request.session_id,
         role="user",
-        content=message.message,
+        content=request.message
     )
-    db.add(user_msg)
-    db.flush()
-
-    intent = classify_intent(message.message)
-    reply = chat_with_ai(message.message, message.session_id, db)
-
-    assistant_msg = Conversation(
-        session_id=message.session_id,
+    db.add(conversation)
+    
+    conversation_reply = Conversation(
+        session_id=request.session_id,
         role="assistant",
-        content=reply,
-        metadata_={"intent": intent},
+        content=reply
     )
-    db.add(assistant_msg)
+    db.add(conversation_reply)
     db.commit()
-
+    
     return ChatResponse(
         reply=reply,
-        session_id=message.session_id,
-        action=intent,
+        session_id=request.session_id,
+        intent=intent
     )
 
 
 @app.get("/api/conversations/{session_id}")
-def get_conversation(session_id: str, limit: int = 50, db: Session = Depends(get_db)):
-    messages = (
-        db.query(Conversation)
-        .filter(Conversation.session_id == session_id)
-        .order_by(Conversation.created_at)
-        .limit(limit)
-        .all()
-    )
-    return {"session_id": session_id, "messages": messages}
+def get_conversation(session_id: str, db: Session = Depends(get_db)):
+    conversations = db.query(Conversation).filter(
+        Conversation.session_id == session_id
+    ).order_by(Conversation.created_at).all()
+    return {"conversations": conversations}
 
 
-@app.get("/api/conversations/{session_id}/summarize")
-def summarize(session_id: str, db: Session = Depends(get_db)):
-    summary = summarize_conversation(session_id, db)
-    return {"session_id": session_id, "summary": summary}
+@app.post("/api/products", response_model=ProductResponse)
+def create_product(product: ProductCreate, db: Session = Depends(get_db)):
+    db_product = Product(**product.model_dump())
+    db.add(db_product)
+    db.commit()
+    db.refresh(db_product)
+    index_products(db)
+    return db_product
 
 
-# === RAG ===
-@app.post("/api/rag/reindex")
-def reindex(db: Session = Depends(get_db)):
-    count = index_products(db)
-    return {"message": f"{count} productos indexados en ChromaDB"}
+@app.put("/api/products/{product_id}", response_model=ProductResponse)
+def update_product(product_id: UUID, product: ProductUpdate, db: Session = Depends(get_db)):
+    db_product = db.query(Product).filter(Product.id == product_id).first()
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    for key, value in product.model_dump(exclude_unset=True).items():
+        setattr(db_product, key, value)
+    db.commit()
+    db.refresh(db_product)
+    index_products(db)
+    return db_product
 
 
-@app.get("/api/rag/search")
-def rag_search(q: str, n: int = 5):
-    results = search_semantic(q, n_results=n)
-    return {"query": q, "results": results, "count": len(results)}
+@app.delete("/api/products/{product_id}")
+def delete_product(product_id: UUID, db: Session = Depends(get_db)):
+    db_product = db.query(Product).filter(Product.id == product_id).first()
+    if not db_product:
+        raise HTTPException(status_code=404, detail="Producto no encontrado")
+    db.delete(db_product)
+    db.commit()
+    index_products(db)
+    return {"message": "Producto eliminado"}
+
+
+@app.get("/api/search")
+def search_products(q: str, db: Session = Depends(get_db)):
+    results = search_semantic(q, n_results=5)
+    return {"query": q, "results": results}
+
+
+@app.post("/api/voice/webhook")
+def voice_webhook(data: dict, db: Session = Depends(get_db)):
+    query = data.get("query", "")
+    intent = data.get("intent", "search")
+    
+    if intent == "search" or intent == "producto":
+        results = search_semantic(query, n_results=3)
+        if results:
+            products_text = []
+            for p in results:
+                products_text.append(f"{p['name']} - ${p['price']} - Stock: {p['stock']} unidades")
+            return {
+                "response": f"Encontré estos productos: {', '.join(products_text)}",
+                "products": results
+            }
+        else:
+            return {"response": "No encontré productos para esa consulta.", "products": []}
+    
+    elif intent == "stock":
+        products = db.query(Product).filter(
+            Product.name.ilike(f"%{query}%")
+        ).all()
+        if products:
+            stock_info = []
+            for p in products:
+                stock_info.append(f"{p.name}: {p.stock} unidades disponibles")
+            return {"response": f"Stock disponible: {', '.join(stock_info)}", "products": []}
+        return {"response": "No encontré ese producto en nuestro catálogo.", "products": []}
+    
+    elif intent == "pedido":
+        return {"response": "Para consultar tu pedido, necesito tu número de email. ¿Cuál es tu email?", "products": []}
+    
+    elif intent == "soporte":
+        return {"response": "Entiendo que tienes un problema. Puedo ayudarte a crear un ticket de soporte. ¿Cuál es el problema?", "products": []}
+    
+    else:
+        products = db.query(Product).limit(5).all()
+        products_list = [f"{p.name} - ${p.price}" for p in products]
+        return {
+            "response": f"Somos TechStore. Tenemos estos productos destacados: {', '.join(products_list)}. ¿En qué puedo ayudarte?",
+            "products": []
+        }
+
+
+@app.get("/api/voice/products")
+def voice_products(db: Session = Depends(get_db)):
+    products = db.query(Product).limit(20).all()
+    products_list = []
+    for p in products:
+        products_list.append({
+            "name": p.name,
+            "price": p.price,
+            "category": p.category,
+            "stock": p.stock,
+            "description": p.description or ""
+        })
+    return {"products": products_list}
+
+
+@app.get("/api/catalog")
+def public_catalog(db: Session = Depends(get_db)):
+    products = db.query(Product).all()
+    result = []
+    for p in products:
+        result.append({
+            "id": str(p.id),
+            "name": p.name,
+            "name_pt": getattr(p, "name_pt", None),
+            "description": p.description,
+            "description_pt": getattr(p, "description_pt", None),
+            "price": p.price,
+            "category": p.category,
+            "stock": p.stock,
+            "image_url": getattr(p, "image_url", None)
+        })
+    return result
