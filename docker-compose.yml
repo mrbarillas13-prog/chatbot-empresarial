@@ -19,6 +19,7 @@ services:
     environment:
       DATABASE_URL: postgresql://chatbot:${DB_PASSWORD}@db:5432/chatbot
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY}
       REDIS_URL: redis://:{REDIS_PASSWORD}@redis:6379/0
     depends_on:
       - db
