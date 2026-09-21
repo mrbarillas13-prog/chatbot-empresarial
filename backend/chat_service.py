@@ -56,6 +56,8 @@ REGLAS:
 - Puedes decirle al cliente si un producto esta en stock o no.
 - Recomienda productos relevantes cuando sea apropiado.
 - Se conciso: respuestas de maximo 3-4 oraciones salvo que pidan mas detalle.
+- NUNCA inventes pedidos, numeros de pedido, productos comprados ni estados. Solo puedes hablar de un pedido si aparece
+  en el contexto como PEDIDO REAL. Si no aparece, di que no encuentras ningun pedido con esos datos y pide el email de la compra.
 
 FLUJO DE COMPRA:
 Cuando el cliente quiera comprar algo, pide su nombre y email.
@@ -72,6 +74,8 @@ REGRAS:
 - Voce pode dizer ao cliente se um produto esta em estoque ou nao.
 - Recomende produtos relevantes quando apropriado.
 - Seja conciso: respostas de no maximo 3-4 frases, salvo que peçam mais detalhes.
+- NUNCA invente pedidos, numeros de pedido, produtos comprados nem estados. So pode falar de um pedido se ele aparecer
+  no contexto como PEDIDO REAL. Se nao aparecer, diga que nao encontra nenhum pedido com esses dados e peça o email da compra.
 
 FLUXO DE COMPRA:
 Quando o cliente quiser comprar algo, peca nome e email.
@@ -88,6 +92,8 @@ RULES:
 - You can tell the customer if a product is in stock or not.
 - Recommend relevant products when appropriate.
 - Be concise: responses of max 3-4 sentences unless they ask for more detail.
+- NEVER invent orders, order numbers, purchased products or statuses. You may only talk about an order if it appears
+  in the context as a REAL ORDER. If it does not, say you cannot find any order with those details and ask for the purchase email.
 
 PURCHASE FLOW:
 When the customer wants to buy something, ask for their name and email.
@@ -191,6 +197,85 @@ def extract_name(text: str, lang: str) -> str:
     return None
 
 
+def has_recent_purchase_intent(session_id: str, db: Session, limit: int = 8) -> bool:
+    """True solo si en los ultimos mensajes del usuario hay intencion clara de COMPRA."""
+    for msg in get_recent_history(session_id, db, limit=limit):
+        if msg["role"] == "user" and classify_intent(msg["content"]) == "add_to_cart":
+            return True
+    return False
+
+
+NAME_STOPWORDS = {
+    "sim", "nao", "no", "ok", "okay", "si", "yes", "obrigado", "obrigada", "gracias", "thanks",
+    "thank", "you", "bom", "boa", "dia", "tarde", "noite", "hello", "ola", "quero", "quiero",
+    "comprar", "buy", "order", "pedido", "por", "favor", "please", "confirmo", "confirma", "certo",
+    "notebook", "laptop", "producto", "produto", "product",
+}
+
+
+def find_name_in_history(session_id: str, db: Session, limit: int = 10) -> str:
+    """El cliente suele dar el nombre suelto ("Pedro Perez"). Lo busca en los ultimos mensajes."""
+    for msg in get_recent_history(session_id, db, limit=limit):
+        if msg["role"] != "user":
+            continue
+        text = (msg["content"] or "").strip()
+        if "@" in text or any(ch.isdigit() for ch in text) or len(text) > 40:
+            continue
+        words = text.split()
+        if not (1 <= len(words) <= 3):
+            continue
+        if not all(re.fullmatch(r"[A-Za-z\u00C0-\u024F'.-]+", w) for w in words):
+            continue
+        if any(w.lower() in NAME_STOPWORDS for w in words):
+            continue
+        return " ".join(w.capitalize() for w in words)
+    return ""
+
+
+def find_orders_for_customer(email: str, db: Session, limit: int = 5) -> list:
+    """Pedidos REALES de un email. SOLO LECTURA: no crea ni modifica nada."""
+    from sqlalchemy import func
+    return (db.query(Order)
+            .filter(func.lower(Order.customer_email) == email.strip().lower())
+            .order_by(Order.created_at.desc())
+            .limit(limit)
+            .all())
+
+
+def _items_summary(order, db: Session) -> str:
+    try:
+        items = list(order.items or [])
+    except Exception:
+        return ""
+    if not items:
+        return ""
+    ids = [it.product_id for it in items]
+    names = {str(p.id): p.name for p in db.query(Product).filter(Product.id.in_(ids)).all()}
+    return ", ".join(f"{it.quantity}x {names.get(str(it.product_id), 'produto')}" for it in items)
+
+
+def format_orders_for_context(orders: list, db: Session, lang: str) -> str:
+    """Contexto con los pedidos reales del cliente, o el aviso de que no hay ninguno."""
+    if not orders:
+        if lang == "pt":
+            return ("PEDIDOS REAIS: nenhum. Nao existe nenhum pedido com esse email. Diga ao cliente que nao encontra "
+                    "nenhum pedido com esses dados e peça o email usado na compra. Nao invente nada.")
+        if lang == "en":
+            return ("REAL ORDERS: none. There is no order with that email. Tell the customer you cannot find any order "
+                    "with those details and ask for the email used in the purchase. Do not invent anything.")
+        return ("PEDIDOS REALES: ninguno. No existe ningun pedido con ese email. Dile al cliente que no encuentras ningun "
+                "pedido con esos datos y pide el email usado en la compra. No inventes nada.")
+    header = {
+        "pt": "PEDIDOS REAIS deste cliente (use SOMENTE estes dados, nao invente):",
+        "en": "REAL ORDERS for this customer (use ONLY this data, do not invent):",
+    }.get(lang, "PEDIDOS REALES de este cliente (usa SOLO estos datos, no inventes):")
+    lines = []
+    for o in orders:
+        prod = _items_summary(o, db)
+        lines.append(f"- ID {str(o.id)[:8]} | {o.customer_name} | {prod} | {o.total:.2f} EUR | estado: {o.status} | {str(o.created_at)[:10]}")
+    return header + "\n" + "\n".join(lines)
+
+
 def get_context_for_intent(intent: str, message: str, db: Session) -> tuple:
     lang = detect_language(message)
 
@@ -281,12 +366,11 @@ def try_create_order_from_chat(session_id: str, message: str, db: Session) -> di
         return None
 
     if not name:
-        if lang == "pt":
-            name = "Cliente"
-        elif lang == "en":
-            name = "Customer"
-        else:
-            name = "Cliente"
+        name = find_name_in_history(session_id, db)
+
+    if not name:
+        # Sin nombre real no se crea el pedido: el asistente lo pedira en la conversacion.
+        return None
 
     try:
         from uuid import UUID
@@ -333,13 +417,25 @@ def chat_with_ai(session_id: str, message: str, context: str, db: Session) -> di
     history = get_recent_history(session_id, db)
 
     order_result = None
-    if intent == "add_to_cart" or extract_email(message):
+    status_context = None
+
+    email_in_message = extract_email(message)
+    purchase_in_progress = (intent == "add_to_cart") or has_recent_purchase_intent(session_id, db)
+
+    if email_in_message and purchase_in_progress:
+        # ESCRITURA: solo con intencion de compra + email (+ nombre, dentro de la funcion).
         order_result = try_create_order_from_chat(session_id, message, db)
+    elif email_in_message:
+        # LECTURA: el cliente pregunta por su pedido. Nunca crea nada.
+        status_context = format_orders_for_context(find_orders_for_customer(email_in_message, db), db, lang)
 
     messages = [{"role": "system", "content": system_prompt}]
 
     if context:
         messages.append({"role": "system", "content": f"CONTEXTO ACTUAL:\n{context}"})
+
+    if status_context:
+        messages.append({"role": "system", "content": status_context})
 
     if order_result:
         order_msg = f"ORDEN CREADA: ID={order_result['order_id']}, Producto={order_result['product_name']}, Total={order_result['total']} EUR, Email={order_result['email']}, Nombre={order_result['name']}"
