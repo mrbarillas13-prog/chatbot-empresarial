@@ -266,14 +266,79 @@ def format_orders_for_context(orders: list, db: Session, lang: str) -> str:
         return ("PEDIDOS REALES: ninguno. No existe ningun pedido con ese email. Dile al cliente que no encuentras ningun "
                 "pedido con esos datos y pide el email usado en la compra. No inventes nada.")
     header = {
-        "pt": "PEDIDOS REAIS deste cliente (use SOMENTE estes dados, nao invente):",
-        "en": "REAL ORDERS for this customer (use ONLY this data, do not invent):",
-    }.get(lang, "PEDIDOS REALES de este cliente (usa SOLO estos datos, no inventes):")
+        "pt": "PEDIDOS REAIS deste cliente. ELE TEM PEDIDOS: responda com estes dados, NAO diga que nao encontra nada (use SOMENTE estes dados, nao invente):",
+        "en": "REAL ORDERS for this customer. THE CUSTOMER HAS ORDERS: answer with this data, do NOT say you cannot find anything (use ONLY this data, do not invent):",
+    }.get(lang, "PEDIDOS REALES de este cliente. EL CLIENTE SÍ TIENE PEDIDOS: responde con estos datos, NO digas que no encuentras nada (usa SOLO estos datos, no inventes):")
     lines = []
     for o in orders:
         prod = _items_summary(o, db)
         lines.append(f"- ID {str(o.id)[:8]} | {o.customer_name} | {prod} | {o.total:.2f} EUR | estado: {o.status} | {str(o.created_at)[:10]}")
     return header + "\n" + "\n".join(lines)
+
+
+STATUS_MARKERS = [
+    "estado", "status", "consultar", "consulta", "rastrear", "rastreio", "tracking",
+    "onde esta", "donde esta", "where is", "meu pedido", "mi pedido", "my order",
+    "ja chegou", "ya llego", "situacao do pedido", "situacion del pedido",
+]
+
+ORDER_STATUS_LABEL = {
+    "pending":   {"pt": "pendente",  "es": "pendiente",  "en": "pending"},
+    "shipped":   {"pt": "enviado",   "es": "enviado",    "en": "shipped"},
+    "delivered": {"pt": "entregue",  "es": "entregado",  "en": "delivered"},
+    "cancelled": {"pt": "cancelado", "es": "cancelado",  "en": "cancelled"},
+}
+
+
+def reply_language(message: str) -> str:
+    """Idioma de la respuesta de estado. La tienda es portuguesa: por defecto PT."""
+    m = " " + (message or "").lower() + " "
+    score = {
+        "pt": sum(m.count(w) for w in [" qual ", " o meu ", " meu ", " nao ", " nao ", " Nao ".lower(),
+                                       " esta ", " pedido ", " obrigad", " ola", " quero ", " e o ", " voce"]),
+        "es": sum(m.count(w) for w in [" hola", " mi ", " correo", " quiero", " puedes", " gracias",
+                                       " donde", " estado de", " soy "]),
+        "en": sum(m.count(w) for w in [" my ", " where ", " email is", " hello", " hi ", " order status", " please"]),
+    }
+    best = max(score.items(), key=lambda kv: kv[1])
+    return best[0] if best[1] > 0 else "pt"
+
+
+def extract_order_ref(message: str) -> str:
+    """Referencia corta de pedido (los 6-8 primeros caracteres del ID)."""
+    m = re.search(r"\b([0-9a-fA-F]{6,8})\b", message or "")
+    return m.group(1).lower() if m else ""
+
+
+def find_orders_by_ref(ref: str, db: Session, limit: int = 3) -> list:
+    """Pedido por su referencia corta. SOLO LECTURA. Sin referencia no devuelve nada."""
+    if not ref:
+        return []
+    from sqlalchemy import cast, String as SAString
+    return (db.query(Order)
+            .filter(cast(Order.id, SAString).like(f"{ref}%"))
+            .limit(limit).all())
+
+
+def format_order_reply(orders: list, db: Session, lang: str) -> str:
+    """Respuesta de estado construida en codigo con datos REALES (sin IA de por medio)."""
+    if not orders:
+        return {
+            "pt": "Nao encontro nenhum pedido com esse email. Pode confirmar-me o email que usou na compra?",
+            "en": "I cannot find any order with that email. Could you confirm the email you used in the purchase?",
+        }.get(lang, "No encuentro ningun pedido con ese email. Puedes confirmarme el email que usaste en la compra?")
+
+    head = {"pt": "Encontrei o seu pedido:", "en": "I found your order:"}.get(lang, "He encontrado tu pedido:")
+    lines = []
+    for o in orders:
+        prod = _items_summary(o, db) or "produto"
+        estado = ORDER_STATUS_LABEL.get((o.status or "").lower(), {}).get(lang, o.status)
+        lines.append(f"• ID {str(o.id)[:8]} · {prod} · {o.total:.2f} EUR · {estado} · {str(o.created_at)[:10]}")
+    tail = {
+        "pt": "Posso ajudar em mais alguma coisa?",
+        "en": "Is there anything else I can help you with?",
+    }.get(lang, "Puedo ayudarte en algo mas?")
+    return head + "\n" + "\n".join(lines) + "\n" + tail
 
 
 def get_context_for_intent(intent: str, message: str, db: Session) -> tuple:
@@ -292,11 +357,9 @@ def get_context_for_intent(intent: str, message: str, db: Session) -> tuple:
         return get_recommendations(message, n_results=5), lang
 
     if intent == "order":
-        if lang == "pt":
-            return "O cliente pergunta sobre um pedido. Informe que pode fornecer seu email para verificar o status.", lang
-        elif lang == "en":
-            return "The customer is asking about an order. Inform them they can provide their email to check the status.", lang
-        return "El cliente pregunta sobre un pedido. Informa que puede proporcionar su email para revisar el estado.", lang
+        # El estado del pedido lo resuelve chat_with_ai con pedidos REALES de la base de datos.
+        # No inyectamos aqui ninguna instruccion generica para no contradecir ese contexto.
+        return "", lang
 
     if intent == "ticket":
         if lang == "pt":
@@ -422,12 +485,21 @@ def chat_with_ai(session_id: str, message: str, context: str, db: Session) -> di
     email_in_message = extract_email(message)
     purchase_in_progress = (intent == "add_to_cart") or has_recent_purchase_intent(session_id, db)
 
-    if email_in_message and purchase_in_progress:
+    asking_status = any(w in (message or "").lower() for w in STATUS_MARKERS)
+
+    if email_in_message and purchase_in_progress and not asking_status:
         # ESCRITURA: solo con intencion de compra + email (+ nombre, dentro de la funcion).
         order_result = try_create_order_from_chat(session_id, message, db)
-    elif email_in_message:
-        # LECTURA: el cliente pregunta por su pedido. Nunca crea nada.
-        status_context = format_orders_for_context(find_orders_for_customer(email_in_message, db), db, lang)
+    elif asking_status or email_in_message:
+        # CONSULTA DE ESTADO: respuesta construida en codigo con los pedidos REALES de la base de datos.
+        # No pasa por el modelo: asi es imposible que invente ni que niegue un pedido que existe.
+        if email_in_message:
+            orders = find_orders_for_customer(email_in_message, db)
+        else:
+            ref = extract_order_ref(message)
+            orders = find_orders_by_ref(ref, db) if ref else []
+        if email_in_message or orders:
+            return {"reply": format_order_reply(orders, db, reply_language(message)), "order": None}
 
     messages = [{"role": "system", "content": system_prompt}]
 
