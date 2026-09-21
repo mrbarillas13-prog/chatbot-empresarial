@@ -1,3 +1,5 @@
+import { useLanguage } from '../contexts/LanguageContext'
+
 interface ProductProps {
   product: {
     id: string
@@ -23,18 +25,27 @@ const categoryColors: Record<string, string> = {
 }
 
 export default function ProductCard({ product }: ProductProps) {
-  const displayName = product.name_pt || product.name
-  const displayDesc = product.description_pt || product.description || ''
+  const { lang, t } = useLanguage()
+  const displayName = lang === 'pt' ? (product.name_pt || product.name) : product.name
+  const displayDesc = lang === 'pt' ? (product.description_pt || product.description || '') : (product.description || '')
   const icon = categoryIcons[product.category] || '\uD83D\uDCE6'
   const gradient = categoryColors[product.category] || 'from-gray-500 to-gray-600'
-  const stockStatus = product.stock > 10 ? 'Em estoque' : product.stock > 0 ? ('Apenas ' + product.stock + ' restantes') : 'Esgotado'
-  const stockColor = product.stock > 10 ? 'text-green-600' : product.stock > 0 ? 'text-amber-600' : 'text-red-600'
+
+  let stockText = t('card.in_stock')
+  let stockColor = 'text-green-600'
+  if (product.stock === 0) {
+    stockText = t('card.out_of_stock')
+    stockColor = 'text-red-600'
+  } else if (product.stock <= 10) {
+    stockText = t('card.low_stock') + ' ' + product.stock + ' ' + t('card.stock_remaining')
+    stockColor = 'text-amber-600'
+  }
 
   const handleAddToCart = () => {
     window.dispatchEvent(new CustomEvent('add-to-cart', {
       detail: {
         id: product.id,
-        name: product.name_pt || product.name,
+        name: displayName,
         price: product.price,
         quantity: 1
       }
@@ -56,14 +67,14 @@ export default function ProductCard({ product }: ProductProps) {
           <div>
             <span className="text-2xl font-extrabold text-blue-900">{product.price.toFixed(2)} &euro;</span>
           </div>
-          <span className={'text-xs font-medium ' + stockColor}>{stockStatus}</span>
+          <span className={'text-xs font-medium ' + stockColor}>{stockText}</span>
         </div>
         <button
           onClick={handleAddToCart}
           className="w-full mt-4 bg-blue-900 text-white py-2.5 rounded-xl font-semibold hover:bg-blue-800 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           disabled={product.stock === 0}
         >
-          {product.stock === 0 ? 'Indisponivel' : 'Adicionar ao Carrinho'}
+          {product.stock === 0 ? t('card.unavailable') : t('card.add_cart')}
         </button>
       </div>
     </div>

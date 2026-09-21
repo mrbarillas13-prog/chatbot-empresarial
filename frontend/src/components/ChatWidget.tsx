@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { renderMarkdown } from '../utils/markdown'
+import { useLanguage } from '../contexts/LanguageContext'
 
 interface Message {
   role: 'user' | 'assistant'
@@ -15,8 +16,9 @@ interface CartItem {
 
 export default function ChatWidget() {
   const [isOpen, setIsOpen] = useState(false)
+  const { t } = useLanguage()
   const [messages, setMessages] = useState<Message[]>([
-    { role: 'assistant', content: 'Ola! Sou o assistente da TechStore. Como posso ajudar voce?' }
+    { role: 'assistant', content: t('chat.welcome') }
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -69,7 +71,7 @@ export default function ChatWidget() {
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Erro ao conectar. Tente novamente.' }])
+      setMessages(prev => [...prev, { role: 'assistant', content: t('chat.error') }])
     } finally {
       setLoading(false)
     }
@@ -91,7 +93,7 @@ export default function ChatWidget() {
       const data = await res.json()
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
     } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Erro ao conectar. Tente novamente.' }])
+      setMessages(prev => [...prev, { role: 'assistant', content: t('chat.error') }])
     } finally {
       setLoading(false)
     }
@@ -130,7 +132,7 @@ export default function ChatWidget() {
                   <div className="flex gap-1">
                     <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
                     <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:'0.1s'}}></div>
-                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:'0.2s'}}></div>
+                    <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{animationDelay:'.2s'}}></div>
                   </div>
                 </div>
               </div>
@@ -143,7 +145,7 @@ export default function ChatWidget() {
                 value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && sendMessage()}
-                placeholder="Digite sua mensagem..."
+                placeholder={t('chat.placeholder')}
                 className="flex-1 bg-gray-100 rounded-xl px-4 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-900/30"
               />
               <button

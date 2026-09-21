@@ -4,6 +4,7 @@ import Header from './components/Header'
 import Sidebar from './components/Sidebar'
 import Chat from './components/Chat'
 import Login from './components/Login'
+import { useLanguage } from './contexts/LanguageContext'
 
 const API_URL = ''
 
@@ -22,7 +23,8 @@ interface Conversation {
   messageCount: number
 }
 
-function App() {
+function AppContent() {
+  const { t } = useLanguage()
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('token'))
   const [username, setUsername] = useState<string | null>(() => localStorage.getItem('username'))
   const [view, setView] = useState<'landing' | 'admin'>('landing')
@@ -55,10 +57,10 @@ function App() {
       <>
         {token && (
           <div className="bg-blue-900 text-white px-6 py-2 flex items-center justify-between text-sm">
-            <span>Logado como <strong>{username}</strong></span>
+            <span>{t('app.logged_in')} <strong>{username}</strong></span>
             <div className="flex gap-4">
-              <button onClick={() => setView('admin')} className="hover:text-cyan-300 transition">Painel Admin</button>
-              <button onClick={handleLogout} className="hover:text-cyan-300 transition">Sair</button>
+              <button onClick={() => setView('admin')} className="hover:text-cyan-300 transition">{t('app.admin_panel')}</button>
+              <button onClick={handleLogout} className="hover:text-cyan-300 transition">{t('app.logout')}</button>
             </div>
           </div>
         )}
@@ -161,16 +163,16 @@ function App() {
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
         />
-        <main className="flex-1 flex flex-col overflow-hidden">
-          <Chat
-            messages={messages}
-            onSend={sendMessage}
-            loading={loading}
-          />
-        </main>
+        <Chat
+          messages={messages}
+          loading={loading}
+          onSend={sendMessage}
+        />
       </div>
     </div>
   )
 }
 
-export default App
+export default function App() {
+  return <AppContent />
+}
